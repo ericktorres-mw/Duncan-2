@@ -14,6 +14,7 @@ export interface PageState {
   email?: string;
   ticketId?: string;
   baseUrl?: string;
+  recentTickets?: Ticket[];
 }
 
 export interface Ticket {
@@ -328,12 +329,46 @@ export function escapeHtml(value: unknown): string {
 }
 
 /**
+ * Renders a compact "Recent tickets" card showing the most recent few
+ * submissions. Returns an empty string when there are none, so the card
+ * never appears before the first ticket is created.
+ */
+export function renderRecentTicketsCard(tickets: Ticket[], ticketsUrl: string): string {
+  if (!tickets || tickets.length === 0) return "";
+
+  const rows = tickets.map(t => [
+    "<tr>",
+    `  <td><code>${escapeHtml(t.ticketId)}</code></td>`,
+    `  <td>${escapeHtml(t.name ?? "—")}</td>`,
+    `  <td>${escapeHtml(t.topic ?? "—")}</td>`,
+    `  <td>${escapeHtml(t.date ?? "—")}</td>`,
+    "</tr>"
+  ].join("\n")).join("\n");
+
+  return [
+    '    <section class="card">',
+    '      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;">',
+    `        <h2>Latest tickets</h2>`,
+    `        <a class="link" href="${ticketsUrl}">View all &rarr;</a>`,
+    "      </div>",
+    "      <table>",
+    "        <thead>",
+    "          <tr><th>Ticket ID</th><th>Name</th><th>Topic</th><th>Submitted</th></tr>",
+    "        </thead>",
+    `        <tbody>${rows}</tbody>`,
+    "      </table>",
+    "    </section>"
+  ].join("\n");
+}
+
+/**
  * Renders the full support page. `state` controls the optional banner
  * shown after a form submission.
  */
 export function renderPage(state: PageState = {}): string {
   const base       = escapeHtml(state.baseUrl ?? "");
   const ticketsUrl = base + "&view=tickets";
+  const recentCard = renderRecentTicketsCard(state.recentTickets ?? [], ticketsUrl);
 
   let toast = "";
   if (state.submitted) {
@@ -408,9 +443,11 @@ export function renderPage(state: PageState = {}): string {
     '        </div>',
     "      </form>",
     "    </section>",
-    '    <section class="card" style="text-align:center;padding:18px 24px;">',
-    `      <a class="link" href="${ticketsUrl}">View all submitted tickets &rarr;</a>`,
-    "    </section>"
+    recentCard || [
+      '    <section class="card" style="text-align:center;padding:18px 24px;">',
+      `      <a class="link" href="${ticketsUrl}">View all submitted tickets &rarr;</a>`,
+      "    </section>"
+    ].join("\n")
   ].join("\n");
 
   const charCounterScript = state.submitted ? "" : [
@@ -471,6 +508,7 @@ export function renderPage(state: PageState = {}): string {
     "  <main>",
     "    " + banner,
     formSection,
+    state.submitted ? recentCard : "",
     "  </main>",
     toast,
     '  <footer>Deployed by Midware<span class="brand-dot" aria-hidden="true"></span>using Cycle</footer>',
