@@ -4,9 +4,6 @@
 # Changing tracked directories will create a new baseline.
 # Changing file extension filters will not.
 
-# Exclude all File Cabinet content by default
-/*
-
 # Include SuiteScripts
 !/SuiteScripts/**
 
