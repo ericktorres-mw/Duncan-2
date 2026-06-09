@@ -196,6 +196,21 @@ const SHARED_STYLES = [
   "    .badge-open { background: var(--badge-open-bg); color: var(--badge-open-color); }",
   "    .empty { color: var(--muted); text-align: center; padding: 40px 0;",
   "             font-size: 14px; }",
+  "    .ticket-grid { display: grid; gap: 14px; margin-top: 18px;",
+  "             grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }",
+  "    .ticket-card { display: flex; flex-direction: column; gap: 8px;",
+  "             padding: 16px; border: 1px solid var(--line); border-radius: 11px;",
+  "             background: var(--bg-2); text-decoration: none; color: inherit;",
+  "             transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease; }",
+  "    .ticket-card:hover { border-color: var(--brand); box-shadow: var(--shadow-hover);",
+  "             transform: translateY(-2px); }",
+  "    .ticket-card .tc-head { display: flex; align-items: center;",
+  "             justify-content: space-between; gap: 8px; }",
+  "    .ticket-card .tc-name { font-size: 15px; font-weight: 600; color: var(--ink);",
+  "             letter-spacing: -0.01em; }",
+  "    .ticket-card .tc-topic { font-size: 13px; color: var(--ink-2); line-height: 1.4; }",
+  "    .ticket-card .tc-date { font-size: 12px; color: var(--muted); margin-top: 4px;",
+  "             font-variant-numeric: tabular-nums; }",
   "    footer { position: relative; text-align: center; color: var(--muted);",
   "             font-size: 12px; padding: 24px 20px 28px; margin-top: 16px;",
   "             border-top: 1px solid var(--line); letter-spacing: .01em; }",
@@ -336,13 +351,16 @@ export function escapeHtml(value: unknown): string {
 export function renderRecentTicketsCard(tickets: Ticket[], ticketsUrl: string): string {
   if (!tickets || tickets.length === 0) return "";
 
-  const rows = tickets.map(t => [
-    "<tr>",
-    `  <td><code>${escapeHtml(t.ticketId)}</code></td>`,
-    `  <td>${escapeHtml(t.name ?? "—")}</td>`,
-    `  <td>${escapeHtml(t.topic ?? "—")}</td>`,
-    `  <td>${escapeHtml(t.date ?? "—")}</td>`,
-    "</tr>"
+  const cards = tickets.map(t => [
+    `      <div class="ticket-card">`,
+    `        <div class="tc-head">`,
+    `          <code>${escapeHtml(t.ticketId)}</code>`,
+    `          <span class="badge badge-open">Open</span>`,
+    "        </div>",
+    `        <div class="tc-name">${escapeHtml(t.name ?? "—")}</div>`,
+    `        <div class="tc-topic">${escapeHtml(t.topic ?? "—")}</div>`,
+    `        <div class="tc-date">${escapeHtml(t.date ?? "—")}</div>`,
+    "      </div>"
   ].join("\n")).join("\n");
 
   return [
@@ -351,12 +369,9 @@ export function renderRecentTicketsCard(tickets: Ticket[], ticketsUrl: string): 
     `        <h2>Latest tickets</h2>`,
     `        <a class="link" href="${ticketsUrl}">View all &rarr;</a>`,
     "      </div>",
-    "      <table>",
-    "        <thead>",
-    "          <tr><th>Ticket ID</th><th>Name</th><th>Topic</th><th>Submitted</th></tr>",
-    "        </thead>",
-    `        <tbody>${rows}</tbody>`,
-    "      </table>",
+    `      <div class="ticket-grid">`,
+    cards,
+    "      </div>",
     "    </section>"
   ].join("\n");
 }

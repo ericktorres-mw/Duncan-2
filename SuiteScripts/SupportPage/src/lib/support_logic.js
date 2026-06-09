@@ -10,10 +10,7 @@
 define(["require", "exports"], function (require, exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
-    exports.escapeHtml = escapeHtml;
-    exports.renderRecentTicketsCard = renderRecentTicketsCard;
-    exports.renderPage = renderPage;
-    exports.renderTicketsPage = renderTicketsPage;
+    exports.renderTicketsPage = exports.renderPage = exports.renderRecentTicketsCard = exports.escapeHtml = void 0;
     const MSG_MAX = 2000;
     const SHARED_STYLES = [
         "    :root {",
@@ -179,6 +176,21 @@ define(["require", "exports"], function (require, exports) {
         "    .badge-open { background: var(--badge-open-bg); color: var(--badge-open-color); }",
         "    .empty { color: var(--muted); text-align: center; padding: 40px 0;",
         "             font-size: 14px; }",
+        "    .ticket-grid { display: grid; gap: 14px; margin-top: 18px;",
+        "             grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }",
+        "    .ticket-card { display: flex; flex-direction: column; gap: 8px;",
+        "             padding: 16px; border: 1px solid var(--line); border-radius: 11px;",
+        "             background: var(--bg-2); text-decoration: none; color: inherit;",
+        "             transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease; }",
+        "    .ticket-card:hover { border-color: var(--brand); box-shadow: var(--shadow-hover);",
+        "             transform: translateY(-2px); }",
+        "    .ticket-card .tc-head { display: flex; align-items: center;",
+        "             justify-content: space-between; gap: 8px; }",
+        "    .ticket-card .tc-name { font-size: 15px; font-weight: 600; color: var(--ink);",
+        "             letter-spacing: -0.01em; }",
+        "    .ticket-card .tc-topic { font-size: 13px; color: var(--ink-2); line-height: 1.4; }",
+        "    .ticket-card .tc-date { font-size: 12px; color: var(--muted); margin-top: 4px;",
+        "             font-variant-numeric: tabular-nums; }",
         "    footer { position: relative; text-align: center; color: var(--muted);",
         "             font-size: 12px; padding: 24px 20px 28px; margin-top: 16px;",
         "             border-top: 1px solid var(--line); letter-spacing: .01em; }",
@@ -304,6 +316,7 @@ define(["require", "exports"], function (require, exports) {
             .replace(/"/g, "&quot;")
             .replace(/'/g, "&#39;");
     }
+    exports.escapeHtml = escapeHtml;
     /**
      * Renders a compact "Recent tickets" card showing the most recent few
      * submissions. Returns an empty string when there are none, so the card
@@ -312,15 +325,18 @@ define(["require", "exports"], function (require, exports) {
     function renderRecentTicketsCard(tickets, ticketsUrl) {
         if (!tickets || tickets.length === 0)
             return "";
-        const rows = tickets.map(t => {
+        const cards = tickets.map(t => {
             var _a, _b, _c;
             return [
-                "<tr>",
-                `  <td><code>${escapeHtml(t.ticketId)}</code></td>`,
-                `  <td>${escapeHtml((_a = t.name) !== null && _a !== void 0 ? _a : "—")}</td>`,
-                `  <td>${escapeHtml((_b = t.topic) !== null && _b !== void 0 ? _b : "—")}</td>`,
-                `  <td>${escapeHtml((_c = t.date) !== null && _c !== void 0 ? _c : "—")}</td>`,
-                "</tr>"
+                `      <div class="ticket-card">`,
+                `        <div class="tc-head">`,
+                `          <code>${escapeHtml(t.ticketId)}</code>`,
+                `          <span class="badge badge-open">Open</span>`,
+                "        </div>",
+                `        <div class="tc-name">${escapeHtml((_a = t.name) !== null && _a !== void 0 ? _a : "—")}</div>`,
+                `        <div class="tc-topic">${escapeHtml((_b = t.topic) !== null && _b !== void 0 ? _b : "—")}</div>`,
+                `        <div class="tc-date">${escapeHtml((_c = t.date) !== null && _c !== void 0 ? _c : "—")}</div>`,
+                "      </div>"
             ].join("\n");
         }).join("\n");
         return [
@@ -329,15 +345,13 @@ define(["require", "exports"], function (require, exports) {
             `        <h2>Latest tickets</h2>`,
             `        <a class="link" href="${ticketsUrl}">View all &rarr;</a>`,
             "      </div>",
-            "      <table>",
-            "        <thead>",
-            "          <tr><th>Ticket ID</th><th>Name</th><th>Topic</th><th>Submitted</th></tr>",
-            "        </thead>",
-            `        <tbody>${rows}</tbody>`,
-            "      </table>",
+            `      <div class="ticket-grid">`,
+            cards,
+            "      </div>",
             "    </section>"
         ].join("\n");
     }
+    exports.renderRecentTicketsCard = renderRecentTicketsCard;
     /**
      * Renders the full support page. `state` controls the optional banner
      * shown after a form submission.
@@ -492,6 +506,7 @@ define(["require", "exports"], function (require, exports) {
             "</html>"
         ].join("\n");
     }
+    exports.renderPage = renderPage;
     /**
      * Renders the all-tickets list page.
      */
@@ -556,4 +571,5 @@ define(["require", "exports"], function (require, exports) {
             "</html>"
         ].join("\n");
     }
+    exports.renderTicketsPage = renderTicketsPage;
 });
