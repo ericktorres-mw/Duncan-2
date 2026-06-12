@@ -5,6 +5,19 @@
  * @author Cycle
  */
 
+/*
+ * NOTICE: Do not modify this file or its associated NetSuite script/deployment records.
+ *
+ * This RESTlet is deployed and maintained by Cycle.sh as part of the Cycle
+ * integration installed in this NetSuite account.
+ *
+ * Unauthorized changes may cause synchronization failures, deployment errors,
+ * or unexpected behavior across connected environments.
+ *
+ * This file is a proprietary component of Cycle.sh and should only be updated
+ * through authorized Cycle deployment processes.
+ */
+
 define([
   "N/record",
   "N/search",
@@ -17,6 +30,16 @@ define([
   // Account ID that this restlet was deployed for - injected during SDF deployment
   // This constant is compared against the expectedAccountId sent from the backend
   const DEPLOYED_ACCOUNT_ID = "1233958_SB1";
+
+  // Injected at deploy time by deployCycleRestlet. "true" in local/dev environments,
+  // "false" in staging and production. Controls whether DEBUG and AUDIT log entries
+  // are collected into the response payload sent back to the backend.
+  // In production, only ERROR entries are collected — this prevents debug noise
+  // from inflating response size and leaking internal details.
+  // NOTE: stored as a raw string first so the minifier cannot constant-fold the
+  // placeholder away before deploy-time substitution replaces it.
+  var _RESTLET_DEBUG_FLAG = "true";
+  var RESTLET_DEBUG = _RESTLET_DEBUG_FLAG.indexOf("true") === 0;
 
   // Per-invocation folder-ID cache. A RESTlet invocation often touches many
   // files inside the same deep folder (e.g. `SuiteScripts/A/B/*.js`). Without
@@ -108,24 +131,50 @@ define([
     return { resolved: resolved, missing: missing };
   }
 
-  // Global log collector for sending logs to backend
+  // Global log collector for sending logs to backend.
+  // Hard caps prevent a tampered or misbehaving log entry from inflating the
+  // response and causing an OOM on the backend (CYC-705).
+  const LOG_MAX_ENTRIES = 100;
+  const LOG_MAX_ENTRY_CHARS = 2048; // ~2 KB per entry (title + details combined)
+
   const logCollector = {
     logs: [],
-    maxLogs: 100, // Limit number of logs to avoid large responses
+
+    capNotified: false,
 
     add: function (level, title, details) {
-      if (this.logs.length >= this.maxLogs) return; // Don't exceed max
+      if (this.logs.length >= LOG_MAX_ENTRIES) {
+        // Emit one NetSuite execution-log error the first time we hit the cap
+        // so operators can see it without inflating the response payload.
+        if (!this.capNotified) {
+          this.capNotified = true;
+          log.error("Log collector cap reached", "Max " + LOG_MAX_ENTRIES + " entries — further entries suppressed");
+        }
+        return;
+      }
+
+      var titleStr = title != null ? String(title) : "";
+      var detailsStr = details != null ? String(details) : "";
+      if (titleStr.length + detailsStr.length > LOG_MAX_ENTRY_CHARS) {
+        if (titleStr.length >= LOG_MAX_ENTRY_CHARS) {
+          titleStr = titleStr.slice(0, LOG_MAX_ENTRY_CHARS);
+          detailsStr = "";
+        } else {
+          detailsStr = detailsStr.slice(0, LOG_MAX_ENTRY_CHARS - titleStr.length);
+        }
+      }
 
       this.logs.push({
         timestamp: new Date().toISOString(),
         level: level,
-        title: title,
-        details: details,
+        title: titleStr,
+        details: detailsStr,
       });
     },
 
     clear: function () {
       this.logs = [];
+      this.capNotified = false;
     },
 
     get: function () {
@@ -133,14 +182,18 @@ define([
     },
   };
 
-  // Wrapper functions for logging that also collect logs
+  // Wrapper functions for logging that also collect logs.
+  // DEBUG and AUDIT entries are suppressed (both NS execution log and response
+  // payload) when RESTLET_DEBUG is false — i.e. in staging and production.
   const logger = {
     debug: function (title, details) {
+      if (!RESTLET_DEBUG) return;
       log.debug(title, details);
       logCollector.add("DEBUG", title, details);
     },
 
     audit: function (title, details) {
+      if (!RESTLET_DEBUG) return;
       log.audit(title, details);
       logCollector.add("AUDIT", title, details);
     },
@@ -234,29 +287,15 @@ define([
   }
 
   function doGet(requestParams) {
-    // Validate account ID if provided in the request
     var accountValidationError = validateAccountId(requestParams.expectedAccountId);
     if (accountValidationError) {
       return accountValidationError;
     }
 
-    logger.debug(
-      "RESTlet GET",
-      "Request received with params: " + JSON.stringify(requestParams)
-    );
-    var user = runtime.getCurrentUser();
     return {
       success: true,
-      message: "Restlet get response",
+      status: "ok",
       timestamp: new Date().toISOString(),
-      method: "GET",
-      requestParams: requestParams,
-      userInfo: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-      },
     };
   }
 
@@ -337,20 +376,10 @@ define([
           break;
 
         default:
-          var user = runtime.getCurrentUser();
           result = {
-            success: true,
-            message: "RESTlet POST response",
-            timestamp: new Date().toISOString(),
-            method: "POST",
-            receivedData: requestBody,
-            userInfo: {
-              id: user.id,
-              name: user.name,
-              email: user.email,
-              role: user.role,
-            },
-            echoData: requestBody,
+            success: false,
+            error: "UNKNOWN_ACTION",
+            message: "Unknown action: " + action,
           };
       }
 
@@ -495,7 +524,6 @@ define([
 
     const fetched = [];
     const errors = [];
-    const logs = [];
 
     if (!Array.isArray(filesToFetch) || filesToFetch.length === 0) {
       const executionTime = Date.now() - startTime;
@@ -503,7 +531,6 @@ define([
         success: true,
         fetched,
         errors,
-        logs,
         lastPath: null,
         isComplete: true,
         executionTime,
@@ -526,7 +553,6 @@ define([
             success: true,
             fetched,
             errors,
-            logs,
             lastPath: path,
             isComplete: false,
             executionTime,
@@ -549,7 +575,6 @@ define([
       success: true,
       fetched,
       errors,
-      logs,
       lastPath: null,
       isComplete: true,
       executionTime,
@@ -1163,9 +1188,9 @@ define([
     ignoredPaths,
     rootFolders = [],
   ) {
-    // TODO: results[] has no size cap — on large accounts with many recently-modified
+    // TODO(CYC-705): results[] has no size cap — on large accounts with many recently-modified
     // files this can accumulate unbounded memory. The getAllFiles path has MAX_RESPONSE_BYTES;
-    // this path should get a similar guard in a follow-up.
+    // add a similar page/entry cap here in a follow-up.
     const results = [];
     const errors = [];
     const folderPathCache = {}; // Cache folder paths to avoid repeated record.load calls
