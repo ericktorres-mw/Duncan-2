@@ -433,7 +433,7 @@ define([
       // Capture the true governance baseline once, before any traversal starts.
       const usageAtStart = runtime.getCurrentScript().getRemainingUsage();
       // Aggregate traversal stats across all roots for the single summary log.
-      const batchStats = { foldersVisited: 0, filesSkipped: 0, filesConsidered: 0 };
+      const batchStats = { foldersVisited: 0, filesSkipped: 0, filesInvalid: 0, filesConsidered: 0 };
 
       for (const root of rootFolders) {
         if (allFiles.resumePath) break;
@@ -468,6 +468,7 @@ define([
         if (files.stats) {
           batchStats.foldersVisited += files.stats.foldersVisited;
           batchStats.filesSkipped += files.stats.filesSkipped;
+          batchStats.filesInvalid += files.stats.filesInvalid;
           batchStats.filesConsidered += files.stats.filesConsidered;
         }
       }
@@ -479,7 +480,7 @@ define([
       logger.audit(
         "Done getAllFiles",
         `files=${allFiles.fetched.length} errors=${allFiles.errors.length} resuming=${!!lastPath} ` +
-        `foldersVisited=${batchStats.foldersVisited} filesSkipped=${batchStats.filesSkipped} ` +
+        `foldersVisited=${batchStats.foldersVisited} filesSkipped=${batchStats.filesSkipped} filesInvalid=${batchStats.filesInvalid} ` +
         `usageBurned=${usageAtStart - usageAtEnd} usageRemaining=${usageAtEnd} ` +
         `sizeMB=${Math.round(accumulatedBytes / 1024 / 1024)} elapsed=${executionTime}ms ` +
         `complete=${!resumePath}`
@@ -1477,11 +1478,11 @@ define([
     startTime = null,
     accumulatedBytes = 0,
     batchMaxBytes = MAX_RESPONSE_BYTES,
-    stats = null  // { foldersVisited, filesSkipped, filesConsidered }
+    stats = null  // { foldersVisited, filesSkipped, filesInvalid, filesConsidered }
   ) {
     // Initialise stats object on the first (root) call only.
     if (!stats) {
-      stats = { foldersVisited: 0, filesSkipped: 0, filesConsidered: 0 };
+      stats = { foldersVisited: 0, filesSkipped: 0, filesInvalid: 0, filesConsidered: 0 };
     }
     stats.foldersVisited++;
 
@@ -1524,7 +1525,9 @@ define([
         if (fileId && fileName) {
           const path = prefix + fileName;
 
-          // Handle resume: skip files until we find the last processed path
+          // Resume check runs before any validation so a stored cursor that
+          // happens to point at an invalid-named file (e.g. a slash-name from
+          // before this guard existed) can still be matched and skipped past.
           if (!resumeFound && lastPath) {
             stats.filesSkipped++;
             if (path === lastPath) {
@@ -1532,6 +1535,40 @@ define([
             }
             continue;
           }
+
+          // Reject filenames containing '/'. NetSuite allows '/' in file names;
+          // git does not. isValidGitPathSegments splits on '/' and treats each
+          // part as a segment — "a/b.txt" as a raw filename would pass it
+          // undetected. The explicit indexOf check catches it before assembly.
+          if (fileName.indexOf("/") !== -1) {
+            stats.filesSkipped++;
+            stats.filesInvalid++;
+            errors.push(
+              createErrorObject(
+                new Error("Invalid filename: contains '/' which is forbidden in git paths (NetSuite allows this in file names)"),
+                path,
+                fileName,
+                { reason: "invalid_git_path" }
+              )
+            );
+            continue;
+          }
+
+          // Validate remaining forbidden characters, reserved names, etc.
+          if (!isValidGitPathSegments(fileName)) {
+            stats.filesSkipped++;
+            stats.filesInvalid++;
+            errors.push(
+              createErrorObject(
+                new Error("Invalid filename: contains forbidden characters, reserved names, or invalid segments"),
+                path,
+                fileName,
+                { reason: "invalid_git_path" }
+              )
+            );
+            continue;
+          }
+
           stats.filesConsidered++;
 
           try {
@@ -1842,6 +1879,15 @@ define([
     return false;
   }
 
+  // NOTE: This is a hand-rolled regex implementation of gitignore matching.
+  // It diverges from the TS-side `ignore` npm package in one important way:
+  // intermediate unlock patterns like `!/Templates/` (trailing slash) are
+  // stripped of their leading slash and compiled to `^Templates\/$`, which
+  // never matches a file path. The effective unlock in this engine is always
+  // the terminal `!/Folder/**` pattern. The `!/Ancestor/` and `/Ancestor/*`
+  // patterns emitted by generateNestedIncludePatterns are load-bearing in the
+  // TS path but dead weight here. End results are identical; both reach the
+  // same include/exclude decision via different pattern mechanics.
   function shouldIgnorePath(filePath, ignoredPaths) {
     const fileName = filePath.split("/").pop() || "";
 
